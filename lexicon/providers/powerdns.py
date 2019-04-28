@@ -21,7 +21,6 @@ This is why the _clean_content and _unclean_content methods exist, to convert
 back and forth between the format PowerDNS expects, and the format Lexicon uses
 """
 from __future__ import absolute_import
-import copy
 import json
 import logging
 
@@ -50,7 +49,7 @@ class Provider(BaseProvider):
         super(Provider, self).__init__(config)
 
         self.api_endpoint = self._get_provider_option('pdns_server')
-        self.disable_slave_notify = self._get_provider_option('pdns-no-slave-notify')
+        self.disable_slave_notify = self._get_provider_option('pdns-disable-notify')
 
         if self.api_endpoint.endswith('/'):
             self.api_endpoint = self.api_endpoint[:-1]
@@ -68,8 +67,9 @@ class Provider(BaseProvider):
         assert self.api_key is not None
         self._zone_data = None
 
-    def notifySlaves(self):
-        if self.disable_slave_notify != None:
+    def notify_slaves(self):
+        """Checks to see if slaves should be notified, and notifies them if needed"""
+        if self.disable_slave_notify is not None:
             LOGGER.debug('Slave notifications disabled')
             return False
 
@@ -78,12 +78,10 @@ class Provider(BaseProvider):
             if response_code == 200:
                 LOGGER.debug('Slave(s) notified')
                 return True
-            else:
-                LOGGER.debug('Slave notification failed with code %i', response_code)
-                return False
+            LOGGER.debug('Slave notification failed with code %i', response_code)
         else:
             LOGGER.debug('Zone type should be \'Master\' for slave notifications')
-            return False
+        return False
 
     def zone_data(self):
         """Get zone data"""
@@ -161,14 +159,18 @@ class Provider(BaseProvider):
 
                 for record in rrset['records']:
                     if record['content'] != newcontent:
-                        updated_data['records'].append({'content': record['content'], 'disabled': record['disabled']})
+                        updated_data['records'].append(
+                            {
+                                'content': record['content'],
+                                'disabled': record['disabled']
+                            })
                 break
 
         request = {'rrsets': [updated_data]}
         LOGGER.debug('request: %s', request)
 
         self._patch('/zones/' + self.domain, data=request)
-        self.notifySlaves()
+        self.notify_slaves()
         self._zone_data = None
         return True
 
@@ -183,27 +185,28 @@ class Provider(BaseProvider):
         for rrset in self.zone_data()['rrsets']:
             if rrset['type'] == rtype and self._fqdn_name(rrset['name']) == self._fqdn_name(name):
                 update_data = rrset
+
                 if 'comments' in update_data:
                     del update_data['comments']
-                update_data['changetype'] = 'REPLACE'
+
+                if content is None:
+                    update_data['records'] = []
+                    update_data['changetype'] = 'DELETE'
+                else:
+                    new_record_list = []
+                    for record in update_data['records']:
+                        if self._clean_content(rrset['type'], content) != record['content']:
+                            new_record_list.append(record)
+
+                    update_data['records'] = new_record_list
+                    update_data['changetype'] = 'REPLACE'
                 break
-        else:
-            return True
-
-        new_records = []
-        for record in update_data['records']:
-            if content is None or self._unclean_content(
-                    rtype, record['content']) != self._unclean_content(rtype, content):
-                new_records.append(record)
-
-        update_data['name'] = self._fqdn_name(update_data['name'])
-        update_data['records'] = new_records
 
         request = {'rrsets': [update_data]}
         LOGGER.debug('request: %s', request)
 
         self._patch('/zones/' + self.domain, data=request)
-        self.notifySlaves()
+        self.notify_slaves()
         self._zone_data = None
         return True
 
