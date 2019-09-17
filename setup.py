@@ -41,6 +41,7 @@ extras_require = {
     'hetzner': ['dnspython>=1.15.0','beautifulsoup4'],
     'easyname': ['beautifulsoup4'],
     'localzone': ['localzone'],
+    'gratisdns': ['beautifulsoup4'],
 }
 
 # Add a 'full' extra, gathering all external dependencies for providers
@@ -95,7 +96,6 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
